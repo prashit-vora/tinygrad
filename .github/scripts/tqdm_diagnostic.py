@@ -26,7 +26,7 @@ def worker(count):
         while tb and tb.tb_frame.f_code.co_name != "test_tqdm_perf":
           tb = tb.tb_next
         values = tb.tb_frame.f_locals if tb else {}
-        failures.append({"iteration": iteration, **{k: values[k] for k in ("tqdm_time", "tinytqdm_time") if k in values}})
+        failures.append({"iteration": iteration, **{k: values[k] for k in ("tqdm_time", "tinytqdm_time", "tqdm_med_time", "tinytqdm_med_time", "tqdm_times", "tinytqdm_times") if k in values}})
       except Exception:
         errors.append({"iteration": iteration, "traceback": traceback.format_exc()})
   return {"attempts": count, "failures": failures, "errors": errors}

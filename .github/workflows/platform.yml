@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: prashit-vora/tinygrad
-          ref: a7a5ee0789457a8000b24cc97467df1bd8db52d2
+          ref: ${{ github.sha }}
           path: subject
       - uses: actions/setup-python@v6
         with:
