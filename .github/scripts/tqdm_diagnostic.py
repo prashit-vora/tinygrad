@@ -16,7 +16,32 @@ import textwrap
 import time
 
 
-def instrument():
+def instrument(probe=None):
+  if probe is not None:
+    from test.null import test_tqdm
+    source = probe.read_text()
+    tree = ast.parse(source)
+    method = tree.body[0]
+    assert isinstance(method, ast.FunctionDef)
+    assert isinstance(method.body[-1], ast.Assert)
+    condition = method.body[-1].test
+    mapping = {"tqdm_wall": "wall_elapsed_tqdm", "tqdm_thread_cpu": "cpu_elapsed_tqdm",
+               "tinytqdm_wall": "wall_elapsed_tiny", "tinytqdm_thread_cpu": "cpu_elapsed_tiny",
+               "tqdm_voluntary": "voluntary_tqdm", "tqdm_involuntary": "involuntary_tqdm",
+               "tinytqdm_voluntary": "voluntary_tiny", "tinytqdm_involuntary": "involuntary_tiny"}
+    # Keep the user's measurement statements; replace prints and assertion with returned records.
+    method.body = [node for node in method.body[:-1] if not
+                   (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and
+                    isinstance(node.value.func, ast.Name) and node.value.func.id == "print")]
+    result = ast.Dict(keys=[ast.Constant(key) for key in mapping],
+                      values=[ast.Name(id=value, ctx=ast.Load()) for value in mapping.values()])
+    result.keys.append(ast.Constant("failed"))
+    result.values.append(ast.UnaryOp(op=ast.Not(), operand=condition))
+    method.body.append(ast.Return(value=result))
+    namespace = dict(vars(test_tqdm))
+    exec(compile(ast.fix_missing_locations(tree), "<user context-switch diagnostic>", "exec"), namespace)
+    return namespace[method.name], source
+
   from test.null import test_tqdm
   source = textwrap.dedent(inspect.getsource(test_tqdm.TestProgressBar.test_tqdm_perf))
   tree = ast.parse(source)
@@ -54,11 +79,12 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("destination", type=Path)
   parser.add_argument("--count", type=int, default=10000)
+  parser.add_argument("--probe", type=Path)
   args = parser.parse_args()
   if not 1 <= args.count <= 1000000:
     parser.error("count must be between 1 and 1000000")
   args.destination.mkdir(parents=True, exist_ok=True)
-  run, source = instrument()
+  run, source = instrument(args.probe)
   (args.destination / "subject-test.py").write_text(source)
   rows = []
   # Same non-TTY file output as previous diagnostics. No diagnostic prints during measurements.
@@ -79,12 +105,18 @@ def main():
             "note": "Original loop bodies and wall timers retained. Thread-CPU timers surround each wall interval, "
                     "so include slightly more timer overhead. "
                     "One process, non-TTY file output, not the full pytest/xdist suite. Timing instrumentation can affect behavior. "
-                    "Wall minus thread CPU is a clue, not a root-cause determination."}
+                    "Wall minus thread CPU is a clue, not a root-cause determination. "
+                    "Context-switch counters, when present, cover the whole process, not only the test thread."}
   for label, group in (("passing", [row for row in rows if not row["failed"]]), ("failing", failures)):
     report[label] = {"count": len(group)}
     if group:
       for field in ("tqdm_wall", "tqdm_thread_cpu", "tinytqdm_wall", "tinytqdm_thread_cpu", "ratio"):
+
         report[label][field + "_median"] = statistics.median(row[field] for row in group)
+    if group and "tqdm_voluntary" in group[0]:
+      for field in ("tqdm_voluntary", "tqdm_involuntary", "tinytqdm_voluntary", "tinytqdm_involuntary"):
+        report[label][field + "_nonzero_attempts"] = sum(row[field] > 0 for row in group)
+        report[label][field + "_total"] = sum(row[field] for row in group)
   (args.destination / "metadata.json").write_text(json.dumps(report, indent=2))
   lines = ["# Original tqdm timing diagnostic", "", f"Subject: `{report['commit']}`", "",
            f"**{len(failures)} failures / {args.count} attempts**", "", report["note"], "",
@@ -96,6 +128,15 @@ def main():
       values = " | ".join(f"{group[field + '_median'] * 1000:.6f} ms" for field in
                           ("tqdm_wall", "tqdm_thread_cpu", "tinytqdm_wall", "tinytqdm_thread_cpu"))
       lines.append(f"| {label} ({group['count']}) | {values} |")
+  if rows and "tqdm_voluntary" in rows[0]:
+    lines += ["", "| Attempts with switches | tqdm voluntary | tqdm involuntary | tiny voluntary | tiny involuntary |",
+              "|---|---:|---:|---:|---:|"]
+    for label in ("passing", "failing"):
+      group = report[label]
+      if group["count"]:
+        counts = " | ".join(str(group[field + "_nonzero_attempts"]) for field in
+                            ("tqdm_voluntary", "tqdm_involuntary", "tinytqdm_voluntary", "tinytqdm_involuntary"))
+        lines.append(f"| {label} ({group['count']}) | {counts} |")
   lines += ["", "Artifacts include every attempt, all failed measurements, environment details, and the original test source."]
   summary = "\n".join(lines) + "\n"
   print(summary)

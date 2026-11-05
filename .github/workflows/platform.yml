@@ -34,12 +34,12 @@ jobs:
           python-version: '3.14.10'
       - name: Install matching minimal dependencies
         run: python -m pip install numpy==2.5.4 tqdm==4.70.1
-      - name: Record wall and thread CPU timings
+      - name: Record wall, thread CPU and context switches
         working-directory: subject
         env:
           PYTHONPATH: ${{ github.workspace }}/subject
           REPETITIONS: ${{ inputs.repetitions }}
-        run: python ../.github/scripts/tqdm_diagnostic.py ../diagnostic-results --count "$REPETITIONS"
+        run: python ../.github/scripts/tqdm_diagnostic.py ../diagnostic-results --count "$REPETITIONS" --probe ../.github/scripts/context_switch_probe.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
