@@ -42,6 +42,15 @@ def instrument(probe=None):
     for node in method.body:
       if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
         target = node.targets[0].id
+        if target in ("involuntary_tqdm", "involuntary_tiny"):
+          statements.append(node)
+          label = "tqdm" if target == "involuntary_tqdm" else "tinytqdm"
+          # Existing getrusage snapshots already contain these fields; no extra calls in timed work.
+          for field in ("ru_utime", "ru_stime", "ru_minflt", "ru_majflt", "ru_nsignals", "ru_inblock", "ru_oublock"):
+            name = f"{label}_{field}"
+            mapping[name] = name
+            statements.extend(ast.parse(f"{name} = after.{field} - before.{field}").body)
+          continue
         if target in ("wall_elapsed_tqdm", "wall_elapsed_tiny"):
           label = "tqdm" if target == "wall_elapsed_tqdm" else "tiny"
           node.value.left = ast.NamedExpr(target=ast.Name(id=f"diagnostic_end_{label}", ctx=ast.Store()), value=node.value.left)
