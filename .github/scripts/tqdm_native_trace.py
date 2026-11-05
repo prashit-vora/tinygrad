@@ -23,13 +23,24 @@ syscall:::entry /pid == $target/ {
 syscall::write:entry /pid == $target && arg0 == 1/ {
   printf("MARK %llu %d %s\n", timestamp, tid, copyinstr(arg1));
 }
+syscall::write:entry /pid == $target && arg0 == 1 && copyinstr(arg1) == "CHILD_DONE\n"/ { exit(0); }
 syscall:::return /pid == $target && self->started && timestamp - self->started > 200000/ {
   printf("SYSCALL %llu %d %s fd=%d start=%llu wall=%llu cpu=%llu ret=%d errno=%d\n",
          timestamp, tid, probefunc, self->fd, self->started,
          timestamp - self->started, vtimestamp - self->cpu_started, arg0, errno);
   ustack(20);
 }
-syscall:::return /pid == $target/ { self->started = 0; }
+sched:::off-cpu /pid == $target/ {
+  self->off_started = timestamp;
+  printf("OFFCPU %llu %d\n", timestamp, tid);
+  ustack(20);
+  stack(25);
+}
+sched:::on-cpu /pid == $target && self->off_started/ {
+  printf("ONCPU %llu %d off_start=%llu off_wall=%llu\n",
+         timestamp, tid, self->off_started, timestamp - self->off_started);
+  self->off_started = 1;
+}
 profile-997 /pid == $target/ {
   printf("SAMPLE %llu %d kernelpc=%p userpc=%p\n", timestamp, tid, arg0, arg1);
   ustack(20);
@@ -89,7 +100,8 @@ def main():
     if not select.select([target.stdout], [], [], 30)[0] or target.stdout.readline().strip() != "CHILD_READY":
       raise RuntimeError("child did not reach ready state")
     with (args.destination / "dtrace-stderr.txt").open("w") as errors, (args.destination / "native-trace.txt").open("w") as trace:
-      tracer = subprocess.Popen(["sudo", "-n", "dtrace", "-q", "-x", "bufsize=16m", "-p", str(target.pid), "-s", str(script)],
+      tracer = subprocess.Popen(["sudo", "-n", "dtrace", "-q", "-x", "bufsize=16m", "-x", "dynvarsize=16m",
+                                 "-p", str(target.pid), "-s", str(script)],
                                 stdout=trace, stderr=errors, text=True)
       deadline = time.monotonic() + 30
       while "TRACER_READY" not in (args.destination / "native-trace.txt").read_text():
@@ -111,7 +123,6 @@ def main():
       else:
         raise RuntimeError("trace experiment exceeded 180 seconds")
       (args.destination / "child-transcript.txt").write_text("".join(transcript))
-      subprocess.run(["sudo", "-n", "kill", "-INT", str(tracer.pid)], check=False)
       tracer.wait(timeout=30)
       target.stdin.write("done\n")
       target.stdin.flush()
