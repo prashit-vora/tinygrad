@@ -1,6 +1,17 @@
 name: macOS tqdm diagnostic
 on:
   workflow_dispatch:
+    inputs:
+      subject_ref:
+        description: 'Commit or branch with the original single-sample test'
+        required: true
+        default: 'a7a5ee0789457a8000b24cc97467df1bd8db52d2'
+        type: string
+      repetitions:
+        description: 'Number of attempts (1 to 1000000)'
+        required: true
+        default: '10000'
+        type: string
 permissions:
   contents: read
 jobs:
@@ -16,18 +27,19 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: prashit-vora/tinygrad
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.subject_ref }}
           path: subject
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14.10'
       - name: Install matching minimal dependencies
         run: python -m pip install numpy==2.5.4 tqdm==4.70.1
-      - name: Compare original and median tests (10000 each)
+      - name: Record wall and thread CPU timings
         working-directory: subject
         env:
           PYTHONPATH: ${{ github.workspace }}/subject
-        run: python ../.github/scripts/tqdm_diagnostic.py ../diagnostic-results
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: python ../.github/scripts/tqdm_diagnostic.py ../diagnostic-results --count "$REPETITIONS"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
