@@ -15,6 +15,7 @@ on:
         options:
           - macos-26
           - macos-15
+          - macos-15-intel
       mode:
         description: 'Observation mode (profiling adds substantial overhead)'
         required: true
