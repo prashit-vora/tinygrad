@@ -25,6 +25,7 @@ on:
           - observe
           - profile
           - io
+          - terminal-ab
       repetitions:
         description: 'Number of attempts (1 to 1000000)'
         required: true
@@ -73,6 +74,13 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/subject
           REPETITIONS: ${{ inputs.repetitions }}
         run: python ../.github/scripts/tqdm_io_probe.py ../diagnostic-results --count "$REPETITIONS"
+      - name: Compare real and fixed terminal-size lookup
+        if: inputs.mode == 'terminal-ab'
+        working-directory: subject
+        env:
+          PYTHONPATH: ${{ github.workspace }}/subject
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: python ../.github/scripts/tqdm_terminal_ab.py ../diagnostic-results --count "$REPETITIONS"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
