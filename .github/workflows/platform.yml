@@ -23,6 +23,7 @@ on:
         options:
           - observe
           - profile
+          - io
       repetitions:
         description: 'Number of attempts (1 to 1000000)'
         required: true
@@ -64,6 +65,13 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/subject
           REPETITIONS: ${{ inputs.repetitions }}
         run: python ../.github/scripts/tqdm_profile.py ../diagnostic-results --count "$REPETITIONS"
+      - name: Measure terminal and output operations
+        if: inputs.mode == 'io'
+        working-directory: subject
+        env:
+          PYTHONPATH: ${{ github.workspace }}/subject
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: python ../.github/scripts/tqdm_io_probe.py ../diagnostic-results --count "$REPETITIONS"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
