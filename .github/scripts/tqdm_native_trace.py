@@ -23,7 +23,7 @@ syscall:::entry /pid == $target/ {
 syscall::write:entry /pid == $target && arg0 == 1/ {
   printf("MARK %llu %d %s\n", timestamp, tid, copyinstr(arg1));
 }
-syscall::write:entry /pid == $target && arg0 == 1 && copyinstr(arg1) == "CHILD_DONE\n"/ { exit(0); }
+syscall::write:entry /pid == $target && arg0 == 1 && arg2 == 11/ { exit(0); }
 syscall:::return /pid == $target && self->started && timestamp - self->started > 200000/ {
   printf("SYSCALL %llu %d %s fd=%d start=%llu wall=%llu cpu=%llu ret=%d errno=%d\n",
          timestamp, tid, probefunc, self->fd, self->started,
