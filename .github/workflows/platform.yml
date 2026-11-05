@@ -27,6 +27,7 @@ on:
           - io
           - terminal-ab
           - trace-capabilities
+          - native-trace
       repetitions:
         description: 'Number of attempts (1 to 1000000)'
         required: true
@@ -85,6 +86,13 @@ jobs:
       - name: Inspect hosted macOS tracing capabilities
         if: inputs.mode == 'trace-capabilities'
         run: python .github/scripts/macos_trace_capabilities.py diagnostic-results
+      - name: Trace native calls and sampled stacks
+        if: inputs.mode == 'native-trace'
+        working-directory: subject
+        env:
+          PYTHONPATH: ${{ github.workspace }}/subject
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: python ../.github/scripts/tqdm_native_trace.py ../diagnostic-results --count "$REPETITIONS"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
