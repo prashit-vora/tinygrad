@@ -26,6 +26,7 @@ on:
           - profile
           - io
           - terminal-ab
+          - trace-capabilities
       repetitions:
         description: 'Number of attempts (1 to 1000000)'
         required: true
@@ -81,6 +82,9 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/subject
           REPETITIONS: ${{ inputs.repetitions }}
         run: python ../.github/scripts/tqdm_terminal_ab.py ../diagnostic-results --count "$REPETITIONS"
+      - name: Inspect hosted macOS tracing capabilities
+        if: inputs.mode == 'trace-capabilities'
+        run: python .github/scripts/macos_trace_capabilities.py diagnostic-results
       - uses: actions/upload-artifact@v4
         if: always()
         with:
