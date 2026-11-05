@@ -7,6 +7,14 @@ on:
         required: true
         default: 'a7a5ee0789457a8000b24cc97467df1bd8db52d2'
         type: string
+      runner:
+        description: 'macOS runner pool (recorded in results)'
+        required: true
+        default: 'macos-26'
+        type: choice
+        options:
+          - macos-26
+          - macos-15
       mode:
         description: 'Observation mode (profiling adds substantial overhead)'
         required: true
@@ -24,7 +32,7 @@ permissions:
   contents: read
 jobs:
   repeat-test:
-    runs-on: macos-26
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 10
     env:
       SPEC: '2'
