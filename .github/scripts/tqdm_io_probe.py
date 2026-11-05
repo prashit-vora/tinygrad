@@ -1,9 +1,11 @@
 """Measure terminal and output operations; instrumentation changes timing costs."""
 import argparse
+import ast
 import contextlib
 import fcntl
 import gc
 import json
+import inspect
 import os
 from pathlib import Path
 import platform
@@ -11,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import textwrap
 from unittest.mock import patch
 
 from tqdm_diagnostic import instrument
@@ -25,6 +28,7 @@ def main():
     parser.error("count must be between 1 and 100000")
   args.destination.mkdir(parents=True, exist_ok=True)
   run, _ = instrument(Path(__file__).with_name("context_switch_probe.py"))
+  import tinygrad.helpers as helpers
   events, collections = [], []
   def track(function, label):
     def wrapped(*a, **kw):
@@ -35,7 +39,8 @@ def main():
       finally:
         end = time.perf_counter()
         cpu = time.thread_time() - cpu_start
-        events.append({"operation": label, "start": start, "end": end, "wall": end-start, "cpu": cpu})
+        events.append({"operation": label, "start": start, "end": end, "wall": end-start, "cpu": cpu,
+                       "cpu_start": cpu_start, "cpu_end": cpu_start + cpu})
     return wrapped
 
   def record_gc(phase, info):
@@ -57,6 +62,18 @@ def main():
       stack.enter_context(contextlib.redirect_stderr(Output(output)))
       for module, name in ((os, "get_terminal_size"), (shutil, "get_terminal_size"), (fcntl, "ioctl")):
         stack.enter_context(patch.object(module, name, track(getattr(module, name), module.__name__ + "." + name)))
+      stack.enter_context(patch.object(helpers.tqdm, "__init__", track(helpers.tqdm.__init__, "tiny.construct")))
+      # Wrap only the single final update, leaving the 100 per-item update calls untouched.
+      source = textwrap.dedent(inspect.getsource(helpers.tqdm.__iter__))
+      tree = ast.parse(source)
+      iterator = tree.body[0]
+      final = iterator.body[-1]
+      assert isinstance(final, ast.Expr) and isinstance(final.value, ast.Call)
+      assert ast.unparse(final.value) == "self.update(close=True)"
+      iterator.body[-1] = ast.parse("diagnostic_final_update(self)").body[0]
+      namespace = dict(vars(helpers), diagnostic_final_update=track(lambda bar: bar.update(close=True), "tiny.final_update"))
+      exec(compile(ast.fix_missing_locations(tree), "<stage-instrumented tiny iterator>", "exec"), namespace)
+      stack.enter_context(patch.object(helpers.tqdm, "__iter__", namespace["__iter__"]))
       warmup = run(None)
       for iteration in range(args.count):
         events.clear()
@@ -82,7 +99,8 @@ def main():
   summary = {"count": args.count, "failures": sum(row["failed"] for row in rows), "warmup": warmup,
              "platform": platform.platform(), "python": platform.python_version(),
              "subject_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-             "note": "Wrapped terminal queries and text-stream write/flush calls, with wall and thread CPU timers. "
+             "note": "Wrapped constructor, single final update, terminal queries and text-stream write/flush calls, "
+                     "with wall and thread CPU timers. "
                      "One warmup per bar; non-TTY temporary file output. Instrumentation can change behavior."}
   (args.destination / "io-summary.json").write_text(json.dumps(summary, indent=2))
   print(json.dumps(summary, indent=2))
